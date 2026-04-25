@@ -1,0 +1,63 @@
+name: Stop Minecraft EC2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: Check instance state
+        id: check_state
+        run: |
+          STATE=$(aws ec2 describe-instances \
+            --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+            --query 'Reservations[0].Instances[0].State.Name' \
+            --output text)
+          echo "state=${STATE}" >> "$GITHUB_OUTPUT"
+          echo "Current state: ${STATE}"
+
+      - name: Stop EC2 instance
+        if: steps.check_state.outputs.state == 'running'
+        run: |
+          aws ec2 stop-instances --instance-ids ${{ secrets.EC2_INSTANCE_ID }}
+
+      - name: Wait for instance to be stopped
+        if: steps.check_state.outputs.state == 'running'
+        run: |
+          aws ec2 wait instance-stopped --instance-ids ${{ secrets.EC2_INSTANCE_ID }}
+
+      - name: Notify Discord (stopped)
+        if: steps.check_state.outputs.state == 'running'
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"Minecraft サーバーを停止しました。\"}"
+
+      - name: Notify Discord (already stopped)
+        if: steps.check_state.outputs.state == 'stopped'
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"Minecraft サーバーは既に停止しています。\"}"
+
+      - name: Notify Discord (stopping)
+        if: steps.check_state.outputs.state == 'stopping'
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"Minecraft サーバーは現在停止処理中です。しばらくお待ちください。\"}"
+
+      - name: Notify Discord (pending)
+        if: steps.check_state.outputs.state == 'pending'
+        run: |
+          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"Minecraft サーバーは起動処理中のため停止できません。完了後に再度お試しください。\"}"
