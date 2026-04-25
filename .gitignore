@@ -13,3 +13,4 @@ lambda/*.zip
 # Python
 __pycache__/
 *.pyc
+terraform/terraform.tfvars
