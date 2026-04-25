@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Minecraft backup every 10 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+Unit=minecraft-backup.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target

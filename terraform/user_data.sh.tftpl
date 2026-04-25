@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# EC2 初回起動時に実行される自動セットアップスクリプト（Terraform user_data）
+# このファイルは .tftpl 形式で、$${ } 内は Terraform が変数展開する
+set -Eeuo pipefail
+
+# --- 設定変数 ---
+MINECRAFT_USER="minecraft"
+MINECRAFT_GROUP="minecraft"
+SERVER_DIR="/home/minecraft/server"
+BACKUP_DIR="/home/minecraft/backups"
+# PaperMC の公式ダウンロードURL（バージョンを変える場合はURLとJAR_NAMEを合わせて変更する）
+JAR_URL="https://fill-data.papermc.io/v1/objects/2ea5fab4aab67d688c7621da623599d4d4236d50fe21986fe042ffba3ccaabf4/paper-26.1.2-22.jar"
+JAR_NAME="paper-26.1.2-22.jar"
+
+# --- パッケージ更新 ---
+# apt の対話プロンプトを無効化してタイムゾーン選択などで停止しないようにする
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update -y
+apt-get upgrade -y
+# PaperMC 1.21.x 以降は Java 21 以上が必要
+apt-get install -y openjdk-25-jre-headless
+
+# --- swap 設定 ---
+# RAM 2GB の t4g.small で OOM（メモリ不足）が発生した際の保険として 1GB の swap を追加する
+# /etc/fstab に追記することで再起動後も有効になる
+fallocate -l 1G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+# --- Minecraft 専用ユーザーの作成 ---
+# サーバープロセスを root で動かさないためにログインシェルなしの専用ユーザーを作成する
+adduser --disabled-password --gecos "" "$MINECRAFT_USER"
+
+# --- ディレクトリ作成 ---
+install -d -o "$MINECRAFT_USER" -g "$MINECRAFT_GROUP" -m 0755 "$SERVER_DIR"
+install -d -o "$MINECRAFT_USER" -g "$MINECRAFT_GROUP" -m 0755 "$BACKUP_DIR"
+
+# --- スクリプトの配置 ---
+# Terraform templatefile() 経由でリポジトリ内の scripts/ を EC2 に書き出す
+cat > "$SERVER_DIR/start.sh" << 'SCRIPT'
+${start_sh_content}
+SCRIPT
+
+cat > "$SERVER_DIR/stop.sh" << 'SCRIPT'
+${stop_sh_content}
+SCRIPT
+
+cat > "$SERVER_DIR/backup.sh" << 'SCRIPT'
+${backup_sh_content}
+SCRIPT
+
+chmod 0755 "$SERVER_DIR/start.sh" "$SERVER_DIR/stop.sh" "$SERVER_DIR/backup.sh"
+chown "$MINECRAFT_USER:$MINECRAFT_GROUP" "$SERVER_DIR/start.sh" "$SERVER_DIR/stop.sh" "$SERVER_DIR/backup.sh"
+
+# --- systemd ユニットファイルの配置 ---
+# Terraform templatefile() 経由でリポジトリ内の services/ を EC2 に書き出す
+cat > /etc/systemd/system/minecraft.service << 'UNIT'
+${minecraft_service_content}
+UNIT
+
+cat > /etc/systemd/system/minecraft-backup.service << 'UNIT'
+${backup_service_content}
+UNIT
+
+cat > /etc/systemd/system/minecraft-backup.timer << 'UNIT'
+${backup_timer_content}
+UNIT
+
+# --- PaperMC のダウンロード ---
+sudo -u "$MINECRAFT_USER" wget -q -O "$SERVER_DIR/$JAR_NAME" "$JAR_URL"
+chown "$MINECRAFT_USER:$MINECRAFT_GROUP" "$SERVER_DIR/$JAR_NAME"
+
+# --- EULA への同意 ---
+# PaperMC を初回起動すると eula.txt が生成されてサーバーが停止する
+# sed で eula=false を eula=true に書き換えて同意済みの状態にする
+sudo -u "$MINECRAFT_USER" bash -c "
+  cd $SERVER_DIR
+  java -Xms512M -Xmx1200M -jar $JAR_NAME nogui || true
+  sed -i 's/eula=false/eula=true/' eula.txt
+"
+
+# --- server.properties の初期設定 ---
+# 2人利用・軽量動作向けの設定値をパッチとして当てる
+# server.properties はキー=値形式なので既存のキーを sed で上書きする
+cat > "$SERVER_DIR/server.properties.patch" << 'EOF'
+max-players=2
+view-distance=7
+simulation-distance=5
+online-mode=true
+white-list=true
+EOF
+
+while IFS='=' read -r key value; do
+    if grep -q "^$${key}=" "$SERVER_DIR/server.properties" 2>/dev/null; then
+        sed -i "s|^$${key}=.*|$${key}=$${value}|" "$SERVER_DIR/server.properties"
+    fi
+done < "$SERVER_DIR/server.properties.patch"
+
+rm -f "$SERVER_DIR/server.properties.patch"
+
+# --- オーナーの一括修正 ---
+# wget や初回起動で作成されたファイルを minecraft ユーザーの所有に統一する
+chown -R "$MINECRAFT_USER:$MINECRAFT_GROUP" "$SERVER_DIR"
+
+# --- systemd サービスの有効化と起動 ---
+systemctl daemon-reload
+systemctl enable minecraft.service
+# minecraft-backup.timer を即時有効化してバックアップをスケジュールする
+systemctl enable --now minecraft-backup.timer
+systemctl start minecraft.service

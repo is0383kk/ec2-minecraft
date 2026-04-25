@@ -14,7 +14,7 @@ ExecStop=/home/minecraft/server/stop.sh
 
 Restart=on-failure
 RestartSec=10
-TimeoutStopSec=240
+TimeoutStopSec=900
 
 StandardOutput=journal
 StandardError=journal
