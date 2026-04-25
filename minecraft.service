@@ -1,0 +1,23 @@
+[Unit]
+Description=PaperMC Minecraft Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=minecraft
+Group=minecraft
+WorkingDirectory=/home/minecraft/server
+
+ExecStart=/home/minecraft/server/start.sh
+ExecStop=/home/minecraft/server/stop.sh
+
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=240
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
