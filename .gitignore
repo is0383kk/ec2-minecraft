@@ -6,3 +6,10 @@ terraform.tfstate.backup
 
 # Java
 *.jar
+
+# Lambda
+lambda/*.zip
+
+# Python
+__pycache__/
+*.pyc
