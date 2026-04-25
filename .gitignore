@@ -14,3 +14,4 @@ lambda/*.zip
 __pycache__/
 *.pyc
 terraform/terraform.tfvars
+config/whitelist.json
