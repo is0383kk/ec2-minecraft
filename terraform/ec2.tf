@@ -42,6 +42,7 @@ resource "aws_instance" "minecraft" {
     minecraft_service_content = file("${path.module}/../services/minecraft.service")
     backup_service_content    = file("${path.module}/../services/minecraft-backup.service")
     backup_timer_content      = file("${path.module}/../services/minecraft-backup.timer")
+    whitelist_json_content    = fileexists("${path.module}/../config/whitelist.json") ? file("${path.module}/../config/whitelist.json") : ""
   })
 
   # user_data 変更時にインスタンスを自動再作成しない

@@ -102,6 +102,13 @@ done < "$SERVER_DIR/server.properties.patch"
 
 rm -f "$SERVER_DIR/server.properties.patch"
 
+# --- whitelist.json の配置 ---
+%{ if whitelist_json_content != "" ~}
+cat > "$SERVER_DIR/whitelist.json" << 'WHITELIST'
+${whitelist_json_content}
+WHITELIST
+%{ endif ~}
+
 # --- オーナーの一括修正 ---
 # wget や初回起動で作成されたファイルを minecraft ユーザーの所有に統一する
 chown -R "$MINECRAFT_USER:$MINECRAFT_GROUP" "$SERVER_DIR"
